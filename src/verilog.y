@@ -86,6 +86,7 @@ public:
     AstNodeModule* m_modp = nullptr;  // Last module for timeunits
     FileLine* m_instModuleFl = nullptr;  // Fileline of module referenced for instantiations
     AstPin* m_instParamp = nullptr;  // Parameters for instantiations
+    AstNode* m_scopedSigAttr = nullptr;  // Pointer to default signal attribute
     string m_instModule;  // Name of module referenced for instantiations
     VVarType m_varDecl;  // Type for next signal declaration (reg/wire/etc)
     VDirection m_varIO;  // Direction for next signal declaration (reg/wire/etc)
@@ -260,6 +261,19 @@ public:
         }
         return itemsp;
     }
+
+    void setScopedSigAttr(AstNode* attrsp) {
+        if (!m_scopedSigAttr != !attrsp) {
+            m_scopedSigAttr = attrsp;
+        } else if (m_scopedSigAttr && attrsp) {
+            attrsp->fileline()->v3error("Nesting signal attributes is not allowed");
+        } else {
+            // public_off without initial public_on
+            assert(false && "Caller should verify that m_scopedSigAttr is not nullptr");
+        }
+    }
+
+    AstNode* getScopedSigAttr() { return AstNode::cloneTreeNull(m_scopedSigAttr, true); }
 };
 
 const VBasicDTypeKwd LOGIC = VBasicDTypeKwd::LOGIC;  // Shorthand "LOGIC"
@@ -939,6 +953,11 @@ BISONPRE_VERSION(3.7,%define api.header.include {"V3ParseBison.h"})
 %token<fl>              yVL_PUBLIC_FLAT_RD      "/*verilator public_flat_rd*/"
 %token<fl>              yVL_PUBLIC_FLAT_RW      "/*verilator public_flat_rw*/"
 %token<fl>              yVL_PUBLIC_MODULE       "/*verilator public_module*/"
+%token<fl>              yVL_PUBLIC_ON           "/*verilator public_on*/"
+%token<fl>              yVL_PUBLIC_FLAT_ON      "/*verilator public_flat_on*/"
+%token<fl>              yVL_PUBLIC_FLAT_RD_ON   "/*verilator public_flat_rd_on*/"
+%token<fl>              yVL_PUBLIC_FLAT_RW_ON   "/*verilator public_flat_rw_on*/"
+%token<fl>              yVL_PUBLIC_OFF          "/*verilator public_off*/"
 %token<fl>              yVL_SC_BV               "/*verilator sc_bv*/"
 %token<fl>              yVL_SFORMAT             "/*verilator sformat*/"
 %token<fl>              yVL_SPLIT_VAR           "/*verilator split_var*/"
@@ -1218,6 +1237,7 @@ package_item<nodep>:            // ==IEEE: package_item
         |       anonymous_program                       { $$ = $1; }
         |       package_export_declaration              { $$ = $1; }
         |       timeunits_declaration                   { $$ = $1; }
+        |       sigAttrScope package_item               { $$ = $2; }
         ;
 
 package_or_generate_item_declaration<nodep>:    // ==IEEE: package_or_generate_item_declaration
@@ -1393,6 +1413,7 @@ paramPortDeclOrArg<nodep>:      // IEEE: param_assignment + parameter_port_decla
         //                      // We combine the two as we can't tell which follows a comma
                 parameter_port_declarationFrontE param_assignment       { $$ = $2; }
         |       parameter_port_declarationTypeFrontE type_assignment    { $$ = $2; }
+        |       sigAttrScope paramPortDeclOrArg                         { $$ = $2; }
         |       vlTag                                   { $$ = nullptr; }
         ;
 
@@ -1433,6 +1454,7 @@ portAndTagE<nodep>:
 
 portAndTag<nodep>:
                 port                                    { $$ = $1; }
+        |       sigAttrScope port                       { $$ = $2; }  // scope will begin starting with this port  
         |       vlTag port                              { $$ = $2; }  // Tag will associate with previous port
         ;
 
@@ -1592,6 +1614,7 @@ interface_itemListE<nodep>:
 interface_itemList<nodep>:
                 interface_item                          { $$ = $1; }
         |       interface_itemList interface_item       { $$ = addNextNull($1, $2); }
+        |       sigAttrScope interface_item             { $$ = $2; }
         ;
 
 interface_item<nodep>:          // IEEE: interface_item + non_port_interface_item
@@ -2510,6 +2533,7 @@ module_itemList<nodep>:         // IEEE: Part of module_declaration
 module_item<nodep>:             // ==IEEE: module_item
                 port_declaration ';'                    { $$ = $1; }
         |       non_port_module_item                    { $$ = $1; }
+        |       sigAttrScope module_item                { $$ = $2; }
         ;
 
 non_port_module_item<nodep>:    // ==IEEE: non_port_module_item
@@ -2905,9 +2929,30 @@ netId<strp>:
         |       idSVKwd                                 { $$ = $1; $<fl>$ = $<fl>1; }
         ;
 
-sigAttrListE<nodep>:
-                /* empty */                             { $$ = nullptr; }
-        |       sigAttrList                             { $$ = $1; }
+sigAttrScope:
+                yVL_PUBLIC_ON                           { AstNode* sigAttrsp = new AstAttrOf{$1, VAttrType::VAR_PUBLIC};
+                                                          GRAMMARP->setScopedSigAttr(sigAttrsp);
+                                                          v3Global.dpi(true); }
+        |       yVL_PUBLIC_FLAT_ON                      { AstNode* sigAttrsp = new AstAttrOf{$1, VAttrType::VAR_PUBLIC_FLAT};
+                                                          GRAMMARP->setScopedSigAttr(sigAttrsp);
+                                                          v3Global.dpi(true); }
+        |       yVL_PUBLIC_FLAT_RD_ON                   { AstNode* sigAttrsp = new AstAttrOf{$1, VAttrType::VAR_PUBLIC_FLAT_RW};
+                                                          GRAMMARP->setScopedSigAttr(sigAttrsp);
+                                                          v3Global.dpi(true); }
+        |       yVL_PUBLIC_FLAT_RW_ON                   { AstNode* sigAttrsp = new AstAttrOf{$1, VAttrType::VAR_PUBLIC_FLAT_RW};
+                                                          GRAMMARP->setScopedSigAttr(sigAttrsp);
+                                                          v3Global.dpi(true); }
+        |       yVL_PUBLIC_FLAT_RW_ON attr_event_control
+                                                        { AstNode* sigAttrsp = new AstAttrOf{$1, VAttrType::VAR_PUBLIC_FLAT_RW};
+                                                          sigAttrsp->addNext(new AstAlwaysPublic{$1, $2, nullptr});
+                                                          GRAMMARP->setScopedSigAttr(sigAttrsp);
+                                                          v3Global.dpi(true); }
+        |       yVL_PUBLIC_OFF                          { GRAMMARP->setScopedSigAttr(nullptr); }
+        ;
+        
+sigAttrListE<nodep>: // Scoped Attributes are added to explicit attributes
+                /* empty */                             { $$ = GRAMMARP->getScopedSigAttr(); }
+        |       sigAttrList                             { $$ = addNextNull($1, GRAMMARP->getScopedSigAttr()); }
         ;
 
 sigAttrList<nodep>:
