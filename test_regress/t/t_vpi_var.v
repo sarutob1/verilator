@@ -24,10 +24,11 @@ extern "C" int mon_check();
 `endif
 
    input clk;
-
-   reg          onebit          /*verilator public_flat_rw @(posedge clk) */;
-   reg [2:1]    twoone          /*verilator public_flat_rw @(posedge clk) */;
-   reg [2:1]    fourthreetwoone[4:3] /*verilator public_flat_rw @(posedge clk) */;
+/*verilator public_on*/
+   reg          onebit          ;
+   reg [2:1]    twoone          ;
+   reg [2:1]    fourthreetwoone[4:3] ;
+/*verilator public_off*/
 
    // verilator lint_off LITENDIAN
    reg [0:61]   quads[2:3]      /*verilator public_flat_rw @(posedge clk) */;
