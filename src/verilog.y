@@ -86,6 +86,7 @@ public:
     AstNodeModule* m_modp = nullptr;  // Last module for timeunits
     FileLine* m_instModuleFl = nullptr;  // Fileline of module referenced for instantiations
     AstPin* m_instParamp = nullptr;  // Parameters for instantiations
+    AstNode* m_scopedSigAttr = nullptr;  // Pointer to default signal attribute
     string m_instModule;  // Name of module referenced for instantiations
     VVarType m_varDecl;  // Type for next signal declaration (reg/wire/etc)
     VDirection m_varIO;  // Direction for next signal declaration (reg/wire/etc)
@@ -256,6 +257,15 @@ public:
         }
         return itemsp;
     }
+
+    void setScopedSigAttr(AstNode* attrsp) {
+        if (m_scopedSigAttr && attrsp) {
+            attrsp->fileline()->v3error("Nesting signal attributes is not allowed");
+        }
+        m_scopedSigAttr = attrsp;
+    }
+
+    AstNode* getScopedSigAttr() { return AstNode::cloneTreeNull(m_scopedSigAttr, true); }
 };
 
 const VBasicDTypeKwd LOGIC = VBasicDTypeKwd::LOGIC;  // Shorthand "LOGIC"
@@ -935,6 +945,8 @@ BISONPRE_VERSION(3.7,%define api.header.include {"V3ParseBison.h"})
 %token<fl>              yVL_PUBLIC_FLAT_RD      "/*verilator public_flat_rd*/"
 %token<fl>              yVL_PUBLIC_FLAT_RW      "/*verilator public_flat_rw*/"
 %token<fl>              yVL_PUBLIC_MODULE       "/*verilator public_module*/"
+%token<fl>              yVL_PUBLIC_FLAT_RW_ON   "/*verilator public_flat_rw_on*/"
+%token<fl>              yVL_PUBLIC_OFF          "/*verilator public_off*/"
 %token<fl>              yVL_SC_BV               "/*verilator sc_bv*/"
 %token<fl>              yVL_SFORMAT             "/*verilator sformat*/"
 %token<fl>              yVL_SPLIT_VAR           "/*verilator split_var*/"
@@ -2498,6 +2510,17 @@ module_item<nodep>:             // ==IEEE: module_item
         |       non_port_module_item                    { $$ = $1; }
         ;
 
+attrScope:
+                yVL_PUBLIC_FLAT_RW_ON                   { AstNode* attrsp = new AstAttrOf{$1, VAttrType::VAR_PUBLIC_FLAT_RW};
+                                                          GRAMMARP->setScopedSigAttr(attrsp);
+                                                          v3Global.dpi(true); }
+        |       yVL_PUBLIC_FLAT_RW_ON attr_event_control
+                                                        { AstNode* attrsp = new AstAttrOf{$1, VAttrType::VAR_PUBLIC_FLAT_RW};
+                                                          attrsp->addNext(new AstAlwaysPublic{$1, $2, nullptr});
+                                                          GRAMMARP->setScopedSigAttr(attrsp);
+                                                          v3Global.dpi(true); }
+        |       yVL_PUBLIC_OFF                          { GRAMMARP->setScopedSigAttr(nullptr); }
+        ;
 non_port_module_item<nodep>:    // ==IEEE: non_port_module_item
                 generate_region                         { $$ = $1; }
                                 // not in IEEE, but presumed so can do yBEGIN ... yEND
@@ -2523,6 +2546,7 @@ non_port_module_item<nodep>:    // ==IEEE: non_port_module_item
         |       yVL_INLINE_MODULE                       { $$ = new AstPragma{$1, VPragmaType::INLINE_MODULE}; }
         |       yVL_NO_INLINE_MODULE                    { $$ = new AstPragma{$1, VPragmaType::NO_INLINE_MODULE}; }
         |       yVL_PUBLIC_MODULE                       { $$ = new AstPragma{$1, VPragmaType::PUBLIC_MODULE}; v3Global.dpi(true); }
+        |       attrScope                               { $$ = nullptr; }
         ;
 
 module_or_generate_item<nodep>: // ==IEEE: module_or_generate_item
@@ -2892,8 +2916,8 @@ netId<strp>:
         ;
 
 sigAttrListE<nodep>:
-                /* empty */                             { $$ = nullptr; }
-        |       sigAttrList                             { $$ = $1; }
+                /* empty */                             { $$ = GRAMMARP->getScopedSigAttr(); }
+        |       sigAttrList                             { $$ = addNextNull($1, GRAMMARP->getScopedSigAttr()); } // Override or combine?
         ;
 
 sigAttrList<nodep>:

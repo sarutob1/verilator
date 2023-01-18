@@ -23,15 +23,16 @@ extern "C" int mon_check();
 `verilog
 `endif
 
-/*verilator public_on*/
    input clk;
+/*verilator public_flat_rw_on @(posedge clk) */
    reg          onebit          ;
    reg [2:1]    twoone          ;
    reg [2:1]    fourthreetwoone[4:3] ;
 /*verilator public_off*/
 
+
    // verilator lint_off LITENDIAN
-   reg [0:61]   quads[2:3]      /*verilator public_flat_rw @(posedge clk) */;
+   reg [0:61]   quads[2:3]      /*verilator public_flat_rw@(posedge clk) */;
    // verilator lint_on LITENDIAN
 
    reg [31:0]      count        /*verilator public_flat_rd */;
